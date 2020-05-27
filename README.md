@@ -9,12 +9,12 @@ The raw data is a .bson drop (NOSQL). Use of an asynchrone method : generation o
 
 # main variable used
 
-*creator, #id creator
-*countries_lc, #id country
-*scans_n, #tally scan
-*created_t, #date 
-*categories_hierarchy, #categorie tag product >>> need to unnest
-*nutrition_grades, #nutrition grade product >>> need to be unnest
+* creator > id creator
+* countries_lc > id country
+* scans_n > tally scan
+* created_t > date 
+* categories_hierarchy > categorie tag product >>> need to unnest
+* nutrition_grades > nutrition grade product >>> need to be unnest
 
 # roadmap 
 
@@ -26,7 +26,7 @@ The raw data is a .bson drop (NOSQL). Use of an asynchrone method : generation o
 # to do
 
 * 1 data acquisition
-  * increase step by step the sample (currently 10k lines)
+- [x] increase step by step the sample (currently 10k lines)
   * might have scallable issue
 * 2 data reduction
   * further understanding of the data scheme
