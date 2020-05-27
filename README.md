@@ -25,14 +25,17 @@ The raw data is a .bson drop (NOSQL). Use of an asynchrone method : generation o
 
 # to do
 
-* 1 data acquisition
+**** 1 data acquisition
 - [x] increase step by step the sample (currently 10k lines)
-  * might have scallable issue
-* 2 data reduction
-  * further understanding of the data scheme
-  * unnest and better actions on data
-  * increase of the number of variable for better insight
-* 3 r shiny design & structure
-  * implementation shinydasboard theme
-  * right organisation for a better understanding 
-  * geographical vision
+- [ ] might have scallable issue
+
+**** 2 data reduction
+- [ ] better understanding of the data scheme
+- [ ] unnest and better actions on data
+- [ ] increase of the number of variable for better insight
+
+**** 3 r shiny design & structure
+- [x] skeleton
+- [x] implementation shinydasboard theme
+- [ ] right organisation for a better understanding 
+- [ ] geographical reading (leaflet)
