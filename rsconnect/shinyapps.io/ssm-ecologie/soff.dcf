@@ -1,0 +1,12 @@
+name: soff
+title: soff
+username:
+account: ssm-ecologie
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 2331036
+bundleId: 3190318
+url: https://ssm-ecologie.shinyapps.io/soff/
+when: 1590485491.79204
+asMultiple: FALSE
+asStatic: FALSE

@@ -1,0 +1,1070 @@
+---
+# title: Open Food Facts growth
+output:
+  html_document:
+    df_print: paged
+    code_folding: hide
+    toc: true
+    toc_float: true
+  html_notebook: default
+  pdf_document: default
+fontsize: 8pt
+knit: (
+  function(inputFile, encoding) { 
+    rmarkdown::render( 
+      input       = inputFile, 
+      encoding    = encoding, 
+      output_file = paste0('OFF.dashboard.',Sys.Date(),'.html'),
+      output_dir  = "/media/DONNEES/0/OFF/") })
+---
+
+This document analyzes [Open Food Facts](https://world.openfoodfacts.org) growth. It is based on the Open Food Facts official [CSV export](https://world.openfoodfacts.org/data).
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. The results appear beneath the code. 
+
+[comment]: # Text after that is never exported whatever output we choose.
+
+[comment]: # (Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*.)
+
+```{r error = FALSE, warning = FALSE, message = FALSE, results = "hide"}
+# Present code needs some R libraries: tidyr, dplyr, lubridate, reshape2 and ggplot2
+# https://bookdown.org/yihui/rmarkdown/r-code.html
+library(tidyr)      # tidy data
+library(dplyr)      # data maniuplation
+library(lubridate)  # manages dates
+library(reshape2)   # To use melt function
+library(ggplot2)    # https://ggplot2.tidyverse.org/
+library(scales)     # https://ggplot2.tidyverse.org/reference/scale_date.html
+
+Sys.setlocale("LC_TIME", "C") # To have dates localized to default (english)
+products_nb_limit <- 3000     # Allow to analyze countries with more than xxxx products
+
+# 0. Download CSV file: 
+#    https://static.openfoodfacts.org/data/en.openfoodfacts.org.products.csv
+
+file <- "/media/DONNEES/0/OFF/base/en.openfoodfacts.org.products.csv"
+#file <- "/media/DONNEES/0/OFF/base/en.openfoodfacts.org.products.2019-02-21.csv"
+#file <- "/media/DONNEES/0/OFF/base/en.openfoodfacts.org.products.2020-03-23.csv"
+fileDate <- file.info(file)$mtime
+lastMonth <- fileDate %m+% months(-1)
+lastMonth2 <- as.Date(fileDate %m+% months(-1), format = "%Y-%m-%d")
+
+cat("File downloaded on: ", format(fileDate, format = "%Y-%m-%d"), "\n")
+cat("Last month: ", format(lastMonth, format = "%Y-%m-%d"))
+
+# Common caption for all graphs: data source and source date
+OFF.caption = list(labs(caption = paste(
+      "Data: https://world.openfoodfacts.org/data - ",
+      format(fileDate, format = "%Y-%m-%d"))))
+
+# Common theme for all graphs
+theme_off <- theme_gray() +
+  theme(legend.position = c(0.15, 0.5),
+        legend.text = element_text(size = 10),
+        legend.key.size = unit(7, "mm"),
+        plot.caption = element_text(size = 7))
+
+```
+
+---
+title: 'Open Food Facts growth, `r format(fileDate, format = "%B %Y")`'
+---
+
+# Extract from original raw export
+```{r error = FALSE, warning = FALSE, message = FALSE, results = "hide"}
+# 1. read raw extract from original OFF: created_datetime,creator,countries_en
+# https://stackoverflow.com/questions/44585168/select-a-subsample-of-columns-when-reading-a-file-in-the-tidyverse
+library(readr)
+OFF_raw <- read_tsv(file, quote = "", # Change efault quote behaviour
+                    col_types = cols_only('code' = col_guess(),         # guess type
+                                      'created_datetime' = col_guess(), # guess type
+                                      'creator' = col_guess(),          # guess type
+                                      'countries_en' = '?',
+                                      'categories_tags' = '?',
+                                      'nutrition-score-fr_100g' = '?')) # guess type
+
+```
+
+Open Food Facts data should be imported without problems. The following indicator shows problems occured during import:
+```{r}
+problems(OFF_raw)
+```
+
+The following table show three first lines of the imported file.
+```{r}
+# Print 3 first lines of the imported file
+head(OFF_raw, n = 3L)
+```
+
+And the following table shows each variable with its characteristic: the data type and some simple statistics.
+
+```{r}
+summary(OFF_raw)
+```
+
+Open Food Facts data is about food products. Every product is identified by a barcode (`code`). Each product has a creator (`creator`) and a created date (`created_datetime`, in ISO format). Each product should also be related to a country (`countries_en`). These informations makes possible to analyse Open Food Facts growth since its creation in 2012.
+
+\pagebreak
+
+
+
+
+
+
+
+
+
+
+
+
+# Questions
+
+This document is a work in pogress. We collect here some questions or ideas to enhance this document.
+
+- Started at the beginning of 2012, the first year of Open Food Facts is not very relevant; do we have to exclude 2012 and maybe even 2013, 2014...?
+
+
+
+# Separate countries_en column values into mutiple rows
+
+And sort data by `created_datetime`.
+
+```{r}
+# 2. Transform countries_en into multiple lines
+#    4056489010258  date-limite-app  2018-10-21 18:32:19  France,Germany
+#    =>
+#    4056489010258  date-limite-app  2018-10-21 18:32:19  France
+#    4056489010258  date-limite-app  2018-10-21 18:32:19  Germany
+OFF_raw_sep <- separate_rows(OFF_raw, countries_en, sep = ",")
+
+# 3. Sort file by created_datetime column
+OFF_raw_sep_sorted <- OFF_raw_sep[with(OFF_raw_sep, order(created_datetime)), ]
+
+head(OFF_raw_sep_sorted, n = 5L)
+```
+
+# Count number of products for each country and per user
+```{r}
+# 4. Count the number of products for each country (new column p_p_country)
+OFF_raw_sep_sorted_cum <- OFF_raw_sep_sorted %>%
+  group_by(countries_en) %>%
+  mutate(p_p_country = row_number())
+
+# 5. Count number of products per user for each country (new column p_p_user)
+OFF_raw_sep_sorted_cum <- OFF_raw_sep_sorted_cum %>%
+  group_by(creator) %>%
+  mutate(p_p_user = row_number())
+
+head(OFF_raw_sep_sorted_cum, n = 5L)
+
+# 5b. Count number of products per user for all countries (new column p_p_user)
+OFF_raw_sorted_user_cum <- OFF_raw[with(OFF_raw, order(created_datetime)), ] %>%
+  group_by(creator) %>%
+  mutate(p_p_user = row_number())
+
+head(OFF_raw_sorted_user_cum, n = 5L)
+
+```
+
+\pagebreak
+
+# All countries with more than `r products_nb_limit` products
+```{r}
+OFF_5_25 <- filter(OFF_raw_sep_sorted_cum, p_p_country >= products_nb_limit)
+
+country500P <- ggplot (data=OFF_5_25, aes(created_datetime, p_p_country)) + 
+               geom_line(aes(group = countries_en, color = countries_en))
+country500P + theme_off + theme(legend.position = c(0.20, 0.6),
+                                legend.text = element_text(size = 8),
+                                legend.key.size = unit(4, "mm")) +
+              scale_y_continuous(labels = comma) + # comma format (100,000)
+              scale_x_datetime(date_breaks="1 year", date_labels = "%Y") +
+              coord_cartesian(ylim  = c(0, 350000)) #+ # adjusts the visible area
+              #coord_cartesian(xlim = as.Date(c("2012-01-01", "2019-06-01")))
+
+country500Pb <- country500P + coord_cartesian(ylim  = c(350000, 700000)) #+ # adjusts the visible area
+  #coord_cartesian(xlim = as.Date(c("2012-01-01", "2019-06-01")))
+country500Pb + theme_off + theme(legend.position = c(0.20, 0.6),
+                                legend.text = element_text(size = 8),
+                                legend.key.size = unit(4, "mm")) +
+              scale_y_continuous(labels = comma) + # comma format (100,000)
+              scale_x_datetime(date_breaks="1 year", date_labels = "%Y") +
+              labs(title = paste("All countries with more than ", products_nb_limit, "products"))
+
+```
+
+\pagebreak
+
+# World vs France products growth
+```{r}
+OFF_world_vs_fr_growth <- OFF_raw_sep_sorted %>%
+  mutate(countries_en = ifelse(countries_en != "France", "world", "France")) %>%
+  group_by(countries_en) %>%
+  mutate(p_p_country = row_number()) %>% na.omit()
+
+cdf2 <- ggplot (data=OFF_world_vs_fr_growth, aes(created_datetime, p_p_country)) + 
+		geom_line(aes(group = countries_en, color = countries_en))
+cdf2 + theme_off + scale_y_continuous(labels = comma) +
+  labs(title = "World vs France products growth") +
+  OFF.caption
+```
+
+
+\pagebreak
+
+# Countries with more than 10,000 products, except France and the USA
+```{r}
+products_nb_group1_limit <- 10000
+OFF_5_25 <- filter(OFF_raw_sep_sorted_cum,
+                   countries_en != "France" & 
+                     countries_en != "United States" & 
+                     p_p_country >= products_nb_group1_limit & 
+                     p_p_country <= 200000)
+
+cdf2 <- ggplot (data=OFF_5_25, aes(created_datetime, p_p_country)) + 
+        geom_line(aes(group = countries_en, color = countries_en))
+cdf2 + theme_off + 
+  scale_y_continuous(breaks = seq(min(OFF_5_25$p_p_country), max(OFF_5_25$p_p_country), by = 10000)) + 
+  scale_y_continuous(labels = comma) +
+  labs(title = paste("Countries with more than", products_nb_group1_limit, "products, except France and the USA")) +
+  OFF.caption
+```
+
+\pagebreak
+
+# Countries with more than 3000 products, except France and the USA
+```{r}
+OFF_2_32 <- filter(OFF_raw_sep_sorted_cum,
+                   countries_en != "France" & 
+                     countries_en != "United States" & 
+                     p_p_country >= 3000 & 
+                     p_p_country <= 50000)
+
+cdf2 <- ggplot (data=OFF_2_32, aes(created_datetime, p_p_country)) + 
+        geom_line(aes(group = countries_en, color = countries_en))
+cdf2 + theme_off + theme(legend.position = c(0.15, 0.55),
+                                legend.text = element_text(size = 8),
+                                legend.key.size = unit(4, "mm")) +
+  scale_y_continuous(labels = comma) +
+  scale_x_datetime(breaks = date_breaks("years"), label = date_format("%Y")) +
+  labs(title = "Countries with more than 3000 products, except France and the USA") +
+  OFF.caption
+```
+
+\pagebreak
+
+# Countries with more than 10000 products, except France and the USA
+(from 2018)
+```{r}
+
+cdf2 <- ggplot (data=OFF_5_25, aes(created_datetime, p_p_country)) + 
+        geom_line(aes(group = countries_en, color = countries_en))
+cdf2 + theme_off + 
+  scale_y_continuous(breaks = seq(min(OFF_5_25$p_p_country), max(OFF_5_25$p_p_country), by = 10000)) + 
+  scale_y_continuous(labels = comma) + 
+  scale_x_datetime(breaks = date_breaks("months"), labels = date_format("%b"), limits = ymd_h(c("2019-02-01 00", "2019-12-01 00"))) +
+  labs(title = "Countries with more than 10,000 products, except France and the USA") +
+  OFF.caption
+```
+
+
+\pagebreak
+
+# Countries with more than 3000 products, except France and the USA (trend test)
+(from 2018)
+```{r}
+
+cdf2 <- ggplot (data=OFF_5_25, aes(created_datetime, p_p_country)) +
+        geom_line(aes(group = countries_en, color = countries_en))
+cdf2 + theme_off + 
+  scale_y_continuous(breaks = seq(min(OFF_5_25$p_p_country), max(OFF_5_25$p_p_country), by = 10000)) + 
+  scale_y_continuous(labels = comma) + 
+  scale_x_datetime(breaks = date_breaks("months"), labels = date_format("%b"), limits = ymd_h(c("2019-02-01 00", "2020-01-01 00"))) +
+  labs(title = "Countries with more than 3000 products, except France and the USA") +
+  OFF.caption
+```
+
+
+\pagebreak
+# Countries with 1000+ products except the 7 biggest ones
+```{r}
+OFF_1_32 <- filter(OFF_raw_sep_sorted_cum,
+                   countries_en != "France" & 
+                     countries_en != "United States" & 
+                     countries_en != "Germany" &
+                     countries_en != "Switzerland" &
+                     countries_en != "Belgium" &
+                     countries_en != "Spain" &
+                     countries_en != "United Kingdom" &
+                     p_p_country >= 1000 & 
+                     p_p_country <= 32000)
+
+cdf2 <- ggplot (data=OFF_1_32, aes(created_datetime, p_p_country))
+
+cdf2 + geom_line(aes(group = countries_en, color = countries_en)) +
+       theme_off + theme(legend.position = c(0.18, 0.6),
+                                legend.text = element_text(size = 8),
+                                legend.key.size = unit(4, "mm")) +
+  scale_y_continuous(breaks = seq(min(OFF_1_32$p_p_country), max(OFF_1_32$p_p_country), by = 1000)) + 
+  scale_x_datetime(breaks = date_breaks("years"), label = date_format("%Y")) +
+  labs(title = "Countries with 1000+ products except the 7 biggest ones") +
+  OFF.caption
+```
+
+
+
+\pagebreak
+
+# Product creations by month
+```{r}
+OFF_creations_p_month <- OFF_raw_sep_sorted_cum  %>%
+   group_by(created_datetime = floor_date(created_datetime, "month")) %>%
+   summarise(creations_p_month = n())
+
+gr_cpm <- ggplot (OFF_raw_sep_sorted_cum, aes(format(created_datetime, "%Y-%m"))) +
+  geom_bar(stat = "count") +
+  labs(x = "Month")
+
+gr_cpm + labs(title="Product creations by month") +
+       theme_off + OFF.caption +
+       coord_cartesian(ylim = c(0,60000)) #+
+       #scale_x_date(limits = as.Date(c("2014-01-01","2020-01-31"), format = "%Y-%m"))
+
+gr_cpm2 <- ggplot(OFF_creations_p_month, aes(x = as.Date(created_datetime), y = creations_p_month)) +
+  geom_bar(stat = "identity") +
+  scale_x_date(date_breaks = "1 month", limits = as.Date(c("2016-01-01",lastMonth)),
+               ) +
+  labs(title="Product creations by month /", x = "Month") +
+  theme_off + OFF.caption +
+  coord_cartesian(ylim = c(0,60000)) +
+  theme(axis.text.x = element_text(angle = -90)) # make the date labels readable
+
+gr_cpm2
+```
+
+
+
+\pagebreak
+
+# Product creations by country by month
+```{r}
+OFF_creations_p_country_p_month <- filter(OFF_raw_sep_sorted_cum,
+                   countries_en != "France" & 
+                     countries_en != "United States" & 
+                     countries_en != "Germany" &
+                     countries_en != "Switzerland" &
+                     countries_en != "Belgium" &
+                     countries_en != "Spain" &
+                     countries_en != "United Kingdom" &
+                     p_p_country >= 1000 & 
+                     p_p_country <= 30000)  %>%
+  group_by(created_datetime = floor_date(created_datetime, "week"), countries_en) %>%
+  summarise(creations_p_country_p_month = n())
+
+OFF_creations_p_country_p_month <- filter(OFF_creations_p_country_p_month,
+                                          creations_p_country_p_month >= 50)
+
+gr_pc <- ggplot (data=OFF_creations_p_country_p_month, aes(created_datetime, creations_p_country_p_month)) +
+        geom_line(aes(group = countries_en, color = countries_en))
+ 
+gr_pc + labs(title="Product creations by country by month") +
+       theme_off + OFF.caption +
+       theme(legend.position = c(0.18, 0.58)) +
+       theme(legend.text = element_text(size = 8),
+                           legend.key.size = unit(4, "mm")) +
+       scale_x_datetime(date_breaks="1 year", date_labels = "%Y") + #+
+       scale_x_datetime(limits = ymd_h(c("2018-01-01 00", "2019-10-30 00"))) +
+       coord_cartesian(ylim  = c(0, 600)) #+ # adjusts the visible area
+```
+
+
+
+
+
+
+
+
+
+
+
+
+\pagebreak
+
+# Users who created 5000+ products
+```{r}
+OFF_5_800000 <- filter(OFF_raw_sep_sorted_cum,
+                     p_p_user >= 5000 & 
+                     p_p_user <= 800000)
+
+cdf2 <- ggplot (data=OFF_5_800000, aes(created_datetime, p_p_user)) + 
+        geom_line(aes(group = creator, color = creator))
+
+cdf2 + labs(title="Users with 5000+ products") + 
+       theme_off +
+       theme(legend.position = c(0.22, 0.6)) +
+       scale_y_continuous(labels = comma) +
+       scale_x_datetime(date_breaks="1 year", date_labels = "%Y")
+```
+`kiliweb` is Yuka app account, `date-limite-app` is also an app. `openfoodfacts-contributors` represent people contributing with the official Open Food Facts app.
+
+
+# Users who created 5000+ products (except kiliweb)
+```{r}
+OFF_5_800000 <- filter(OFF_raw_sep_sorted_cum,
+                     creator != "kiliweb" &
+                     p_p_user >= 5000 & 
+                     p_p_user <= 800000)
+
+cdf2 <- ggplot (data=OFF_5_800000, aes(created_datetime, p_p_user)) + 
+        geom_line(aes(group = creator, color = creator))
+
+cdf2 + labs(title="Users with 5000+ products (except kiliweb)") + 
+       theme_off +
+       theme(legend.position = c(0.22, 0.6)) +
+       scale_y_continuous(labels = comma) +
+       scale_x_datetime(date_breaks="1 year", date_labels = "%Y")
+```
+`kiliweb` is Yuka app account, `date-limite-app` is also an app. `openfoodfacts-contributors` represent people contributing with the official Open Food Facts app.
+
+
+# Users who created 3000+ products (except kiliweb, usda-ndb-import)
+```{r}
+OFF_5_800000 <- filter(OFF_raw_sep_sorted_cum,
+                     creator != "kiliweb" &
+                     creator != "usda-ndb-import" &
+                     creator != "openfoodfacts-contributors" &
+                     p_p_user >= 3000 & 
+                     p_p_user <= 800000)
+
+cdf2 <- ggplot (data=OFF_5_800000, aes(created_datetime, p_p_user)) + 
+        geom_line(aes(group = creator, color = creator))
+
+cdf2 + labs(title="Users with 3000+ products (except kiliweb)") + 
+       theme_off +
+       theme(legend.position = c(0.22, 0.6)) +
+       scale_y_continuous(labels = comma) +
+       scale_x_datetime(date_breaks="1 year", date_labels = "%Y")
+```
+`kiliweb` is Yuka app account, `date-limite-app` is also an app. `openfoodfacts-contributors` represent people contributing with the official Open Food Facts app.
+
+
+\pagebreak
+
+# Users compared to Yuka
+```{r}
+OFF_products_growth_per_user <- OFF_raw %>%
+  select(code, creator, created_datetime) %>%
+  mutate(creator = ifelse(creator != "kiliweb", "other", "kiliweb")) %>%
+  arrange(created_datetime) %>%
+  group_by(creator) %>%
+  mutate(pr_p_user = row_number()) %>% na.omit()
+
+gr_OFF_products_growth_per_user <- ggplot (data=OFF_products_growth_per_user, aes(created_datetime, pr_p_user)) + 
+		geom_line(aes(group = creator, color = creator))
+
+gr_OFF_products_growth_per_user + labs(title="Regular users vs kiliweb growth") + 
+	   theme_off + OFF.caption +
+	   theme(legend.position = c(0.22, 0.6)) +
+     scale_colour_discrete(labels=c("kiliweb", "others")) +
+	   scale_y_continuous(labels = comma) +
+	   scale_x_datetime(date_breaks="1 year", date_labels = "%Y")
+```
+
+\pagebreak
+
+```{r}
+gr_OFF_products_growth_per_user + labs(title="Regular users vs kiliweb growth") + 
+	   theme_off + OFF.caption +
+	   theme(legend.position = c(0.22, 0.6)) +
+     scale_colour_discrete(labels=c("kiliweb", "others")) +
+	   scale_y_continuous(labels = comma) +
+     scale_x_datetime(limits = ymd_h(c("2018-01-01 00", "2020-12-31 00")),
+	                    breaks = date_breaks("years"), label = date_format("%Y"))
+```
+
+
+# Users compared to Yuka (France)
+```{r}
+OFF_FR_products_growth_per_user <- OFF_raw_sep_sorted %>%
+  select(countries_en, creator, created_datetime) %>%
+  filter(countries_en == "France") %>%
+  mutate(creator = ifelse(creator != "kiliweb", "other", "kiliweb")) %>%
+  arrange(created_datetime) %>%
+  group_by(creator) %>%
+  mutate(pr_p_user = row_number()) %>% na.omit()
+
+gr_OFF_FR_products_growth_per_user <- ggplot (data=OFF_FR_products_growth_per_user, aes(created_datetime, pr_p_user)) + 
+		geom_line(aes(group = creator, color = creator))
+
+gr_OFF_FR_products_growth_per_user + labs(title="France growth: regular users vs kiliweb") + 
+	   theme_off + OFF.caption +
+	   theme(legend.position = c(0.22, 0.6)) +
+     scale_colour_discrete(labels=c("kiliweb", "others")) +
+	   scale_y_continuous(labels = comma) +
+	   scale_x_datetime(date_breaks="1 year", date_labels = "%Y")
+```
+
+
+\pagebreak
+
+# Users creations range
+```{r}
+
+# created_datetime | stephane    | 1
+# created_datetime | marianne    | 1
+# created_datetime | stephane    | 2
+# created_datetime | stephane    | 3
+
+OFF_user_creations <- select(OFF_raw_sorted_user_cum,
+                             created_datetime, creator) %>%
+  summarise(creations = n()) %>%
+  mutate(range = cut(creations, breaks = c(0, 1000, 100000, 200000, 1000000)))
+
+# kiliweb                     | 380582
+# usda-ndb-import             | 171153
+# openfoodfacts-contributors  | 118268
+# date-limite-app             | 31496
+
+
+cdf2 <- ggplot (data = OFF_user_creations, aes(range, creations, fill = creations)) + 
+        geom_bar(stat = "identity")
+
+cdf2 + labs(title="Users with 5000+ products") + 
+       theme_off +
+       scale_y_continuous(labels = comma)
+```
+
+\pagebreak
+
+# Users creations treemap
+```{r}
+library(treemap)
+# creator                     | creations
+# kiliweb                     | 380582   
+# usda-ndb-import             | 171153  
+# openfoodfacts-contributors  | 118268  
+
+# Takes long time to produce (more than 5 minutes)
+
+treemap(OFF_user_creations,
+        index = "creator",
+        vSize = "creations",
+        type = "index",
+        title = "Number of products created")
+
+```
+`kiliweb` is Yuka app account, `date-limite-app` is also an app. `openfoodfacts-contributors` represent people contributing with the official Open Food Facts app.
+
+\pagebreak
+
+# Top 10 users creations proportion, related to all creations
+```{r}
+library(treemap)
+
+top_users_by_creations <- OFF_user_creations %>%
+  mutate(creator = ifelse(creations > 2000, creator, "users below 2000 created products")) %>%
+  mutate(type = case_when(creator == "kiliweb" ~ "kiliweb",
+                          creator == "foodrepo" ~ "import",
+                          creator == "usda-ndb-import" ~ "import",
+                          creator == "openfood-ch-import" ~ "import",
+                          creator == "systeme-u" ~ "import",
+                          creator == "scamark" ~ "import",
+                          creator == "casino-off" ~ "import",
+                          creator == "carrefour" ~ "import",
+                          creator == "ldc" ~ "import",
+                          creator == "fleury-michon" ~ "import",
+                          TRUE ~ "user")
+                    ) %>%
+  group_by(creator, type)
+
+
+#top_users_by_creations <- group_by(creator, type)
+
+
+top_users_by_creations <- top_users_by_creations  %>%
+  summarise(nb = sum(creations)) %>%
+  ungroup() %>%
+  mutate(creator_text = paste(creator, "\n", round((nb / sum(nb)*100),1), "%"))
+
+# creator                     | creations  | group
+# kiliweb                     | 380582     | kiliweb
+# usda-ndb-import             | 171153     | usda-ndb-import
+# openfoodfacts-contributors  | 118268     | openfoodfacts-contributors
+# xxx                         | 2          | others
+
+treemap(top_users_by_creations,
+		index = c("type", "creator_text"),
+		vSize = "nb",
+		type = "index",
+		title = "Number of products created",
+    align.labels = list(c("centre","centre"),c("left","top")),
+		fontsize.labels = c(25,9))
+```
+
+
+\pagebreak
+
+# Top 10 users creations proportion, related to all creations
+```{r}
+library(treemap)
+
+OFF_user_creations_2019 <- select(OFF_raw_sorted_user_cum,
+                                  created_datetime,
+                                  creator) %>%
+  filter(created_datetime >= "2019-01-01" & created_datetime <= "2019-12-31") %>%
+  summarise(creations = n()) %>%
+  mutate(range = cut(creations, breaks = c(0, 1000, 100000, 200000, 1000000)))
+
+top_users_by_creations_2019 <- OFF_user_creations_2019 %>%
+  mutate(creator = ifelse(creations > 100, creator, "users below 5000 created products")) %>%
+  mutate(type = case_when(creator == "kiliweb" ~ "kiliweb",
+                          creator == "foodrepo" ~ "import",
+                          creator == "usda-ndb-import" ~ "import",
+                          creator == "openfood-ch-import" ~ "import",
+                          creator == "systeme-u" ~ "import",
+                          creator == "scamark" ~ "import",
+                          creator == "casino-off" ~ "import",
+                          creator == "carrefour" ~ "import",
+                          creator == "ldc" ~ "import",
+                          creator == "fleury-michon" ~ "import",
+                          TRUE ~ "user")
+         ) %>%
+  group_by(creator, type)
+  
+
+
+top_users_by_creations_2019 <- top_users_by_creations_2019  %>%
+  summarise(nb = sum(creations)) %>%
+  ungroup() %>%
+  mutate(creator_text = paste(creator, "\n", comma(nb), "\n", round((nb / sum(nb)*100),1), "%"))
+
+total_products_2019 <- top_users_by_creations_2019 %>% summarise(tot = sum(nb))
+# creator                     | creations  | group
+# kiliweb                     | 380582     | kiliweb
+# usda-ndb-import             | 171153     | usda-ndb-import
+# openfoodfacts-contributors  | 118268     | openfoodfacts-contributors
+# xxx                         | 2          | others
+
+treemap(top_users_by_creations_2019,
+		index = c("type", "creator_text"),
+		vSize = "nb",
+		type = "index",
+		title = paste(comma(as.numeric(total_products_2019)), " products created in 2019"),
+    align.labels = list(c("centre","centre"),c("left","top")),
+		fontsize.labels = c(25,9))
+```
+
+\pagebreak
+
+
+# User creation activity by month
+```{r}
+OFF_creations_p_month <- OFF_raw_sep_sorted_cum  %>%
+  group_by(created_datetime = floor_date(created_datetime, "month"), creator) %>%
+  summarise(creations_p_user_p_month = n())
+
+OFF_user_creation_activity <- OFF_creations_p_month %>%
+  group_by(created_datetime,
+           creator_ranges = cut (creations_p_user_p_month,
+                                 breaks = c(0, 5, 10, 100,1000,10000,500000),
+                                 dig.lab = 7)) %>% # 1000 and not 1e+03
+  summarise(users_p_range = n())
+
+gr_uca <- ggplot (data=OFF_user_creation_activity, aes(created_datetime, users_p_range)) + 
+        geom_line(aes(group = creator_ranges, color = creator_ranges))
+
+gr_uca + labs(title="User creation activity by month") + 
+       theme_off + OFF.caption +
+       theme(legend.position = c(0.15, 0.7)) +
+       scale_x_datetime(date_breaks="1 year", date_labels = "%Y") +
+       scale_y_continuous(name = "users", breaks = c(0, 1, 2, 5, 10, 20, 30, 40, 60, 80, 100, 200, 300, 400, 500, 600)) +
+       coord_trans(y = "log10") +
+       scale_color_hue(name = "New products")#, labels = c(as.character(creator_ranges))
+```
+This graph only shows new products created by the users and not the modifications. In France it begins more and more difficult to find new products.
+
+10,000-500,000 creations per month is probably only due to massive imports. We could hide this category as it is not very relevant.
+
+0-5, 5-10 and 10-100 creations might be divided to understand how Open Food Facts could help user to create more products each months.
+
+\pagebreak
+
+# User creation activity by month
+```{r}
+OFF_creations_p_month <- OFF_raw_sep_sorted_cum  %>%
+  group_by(created_datetime = floor_date(created_datetime, "month"), creator) %>%
+  summarise(creations_p_user_p_month = n())
+
+OFF_user_creation_activity <- OFF_creations_p_month %>%
+  group_by(created_datetime,
+           creator_ranges = cut (creations_p_user_p_month,
+                                 breaks = c(0, 2, 5, 10, 50, 100, 1000, 500000),
+                                 dig.lab = 7)) %>% # 1000 and not 1e+03
+  summarise(users_p_range = n())
+
+gr_uca <- ggplot (data=OFF_user_creation_activity, aes(created_datetime, users_p_range)) + 
+        geom_line(aes(group = creator_ranges, color = creator_ranges))
+
+gr_uca + labs(title="User creation activity by month") + 
+       theme_off + OFF.caption +
+       theme(legend.position = c(0.15, 0.7)) +
+       scale_x_datetime(date_breaks="1 year", date_labels = "%Y") +
+       scale_y_continuous(name = "users", breaks = c(0, 1, 2, 5, 10, 20, 30, 40, 60, 80, 100, 200, 300, 400, 500, 600)) +
+       coord_trans(y = "log10") +
+       scale_color_hue(name = "New products")#, labels = c(as.character(creator_ranges))
+```
+This graph only shows new products created by the users and not the modifications. In France it begins more and more difficult to find new products.
+
+10,000-500,000 creations per month is probably only due to massive imports. We could hide this category as it is not very relevant.
+
+0-5, 5-10 and 10-100 creations might be divided to understand how Open Food Facts could help user to create more products each months.
+
+\pagebreak
+
+# Monthly active contributors (todo)
+
+TODO
+https://meta.wikimedia.org/wiki/Research:Modeling_monthly_active_editors
+
+### Editor Classes
+- **Monthly Active Editors** (MAE)
+    Editors who save at least 5 revisions within one month.
+- **New Active Editors** (NAE)
+    Newly registered users who save at least 5 revisions in the month that they registered.
+- **Surviving New Active Editors** (SNAE)
+    New Active Editors from the previous month who continued to make at least 5 edits in the current month.
+- **Recurring Old Active Editors** (ROAE)
+    Non-new Active Editors from the previous month who continued to make at least 5 edits in the current month.
+- **Reactivated Editors** (RAE)
+    All other active editors who (1) were not active in the previous month and (2) were not a Newly registered user in the current month.
+
+### Basic equation
+MAEm = NAEm + SNAEm + ROAEm + RAEm
+
+```{r}
+
+# See: http://larmarange.github.io/analyse-R/analyse-de-survie.html
+
+# Starting from OFF_creations_p_month
+# 2012-01-01 | stephane | 1
+# 2012-02-01 | andre    | 10
+
+# OFF_editor_classes <- OFF_raw_sep_sorted_cum %>%
+#   group_by(created_datetime = floor_date(created_datetime, "month"), creator) %>%
+#   summarise(creations_p_user_p_month = n())
+
+       
+```
+
+\pagebreak
+
+# New 'creators' per year per country
+```{r}
+# countries_en | start | end | creators_p_product
+new_users_p_months <- OFF_raw_sep_sorted_cum %>%
+  filter(p_p_user == 1 & p_p_country >= 5000) %>% 
+  group_by(countries_en, month=floor_date(created_datetime, "quaterly")) %>% 
+  summarise(nb = n())
+
+gr_new_users_p_months <- ggplot (data = new_users_p_months, aes (month, nb)) + 
+  geom_line(aes(group = countries_en, color = countries_en))
+
+#lims <- as.POSIXct(strptime(c("2015-01-01","2020-01-28"), format = "%Y-%m-d%"))
+gr_new_users_p_months + labs(title="New creators per month per country") + 
+       theme_off +
+       theme(legend.position = c(0.15, 0.50)) +
+       scale_y_continuous(labels = comma) +
+       coord_cartesian(ylim  = c(0, 300),     # adjusts the visible area
+                       xlim = as.POSIXct(as.Date(c("2015-01-01", "2020-01-01")))) + 
+       scale_x_datetime(date_breaks="1 year", date_labels = "%Y")
+```
+
+Note: graph visible area has been cut to provide better readability. French peak at the end of 2018 reached 719 new creators, following Open Food Facts interview during "Envoyé spécial" prime time TV show.
+
+
+\pagebreak
+
+# New 'creators' per week per country except France
+```{r}
+new_users_p_week <- OFF_raw_sep_sorted_cum %>% 
+  filter(p_p_user == 1 & 
+           p_p_country >= 5000 & 
+           countries_en != "France") %>% 
+  group_by(countries_en, week=floor_date(created_datetime, "week")) %>% 
+  summarise(nb = n())
+
+gr_new_users_p_week <- ggplot (data = new_users_p_week, aes (week, nb)) + 
+  geom_line(aes(group = countries_en, color = countries_en))
+
+gr_new_users_p_week + labs(title="New creators per week per country") + 
+       theme_off +
+       theme(legend.position = c(0.15, 0.55)) +
+         coord_cartesian(ylim  = c(0, 50),     # adjusts the visible area
+                       xlim = as.POSIXct(as.Date(c("2018-01-01", format(lastMonth, format = "%Y-%m-%d"))))) + 
+       scale_y_continuous(labels = comma) +
+       scale_x_datetime(date_breaks="1 year", date_labels = "%Y")
+```
+
+\pagebreak
+
+# New product creations by month of the year
+```{r}
+# Filter huge USDA  and Openfood CH imports
+OFF_raw_sep_sorted_cum_wo_usda <- OFF_raw_sep_sorted_cum %>% filter(creator != "usda-ndb-import" & creator != "openfood-ch-import")
+
+gr_product_creations_by_month <- ggplot (data = OFF_raw_sep_sorted_cum_wo_usda, aes (x = months(created_datetime))) + 
+   geom_bar()
+
+gr_product_creations_by_month + labs(title="New product creations by month of the year") + 
+        theme_off + OFF.caption +
+        scale_y_continuous(labels = comma) +
+  scale_x_discrete(limits = c("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"))
+        # geom_text(hjust=1.4, vjust=0.6, color="white", size=3)
+       # theme(legend.position = c(0.22, 0.6)) +
+       # scale_x_datetime(date_breaks="1 year", date_labels = "%Y")
+```
+Massive imports are filtered, not to disturb the graph.
+
+\pagebreak
+
+# New product creations by day of the week
+```{r}
+
+gr_product_creations_by_day <- ggplot (data = OFF_raw_sep_sorted_cum_wo_usda, aes (x = weekdays(created_datetime))) + 
+   geom_bar()
+
+gr_product_creations_by_day + labs(title="New product creations by day of the week") + 
+        theme_off + OFF.caption +
+        scale_y_continuous(labels = comma) +
+  scale_x_discrete(limits = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"))
+        # geom_text(hjust=1.4, vjust=0.6, color="white", size=3)
+       # theme(legend.position = c(0.22, 0.6)) +
+       # scale_x_datetime(date_breaks="1 year", date_labels = "%Y")
+```
+Massive imports are filtered, not to disturb the graph.
+
+\pagebreak
+
+# New product creations by hour of the day
+```{r}
+
+gr_product_creations_by_day <- ggplot (data = OFF_raw_sep_sorted_cum_wo_usda, aes (x = hour(created_datetime))) + 
+   geom_bar()
+
+gr_product_creations_by_day + labs(title="New product creations by hour of the day") + 
+        theme_off + OFF.caption +
+        scale_y_continuous(labels = comma) +
+        scale_x_continuous(breaks = seq(0, 24, 1))
+        # geom_text(hjust=1.4, vjust=0.6, color="white", size=3)
+```
+Massive imports are filtered, not to disturb the graph. It is based on the `created_datetime` field which represent the date and UTC time of creation of the product in OFF database.
+
+This graph has to be reworked. It should be produced per country.
+
+
+
+
+
+\pagebreak
+
+# Number of countries where products are present
+```{r}
+
+OFF_grouped_by_code <- OFF_raw_sep %>%
+  group_by(code) %>%
+  summarise(nb_countries = n()) %>%
+  group_by(nb_countries) %>%
+  summarise(nb_products = n()) %>%
+  mutate(percent = round((nb_products/sum(nb_products))*100,3))
+
+gr_products_in_multiple_countries <- ggplot (data = OFF_grouped_by_code, aes (nb_countries, percent)) +
+   geom_col()
+
+# gr_products_in_multiple_countries <- ggplot (data = OFF_grouped_by_code, aes (x = nb_countries)) +
+#   geom_bar(aes(y = (..count..)/sum(..count..)))
+
+#TODO: don't print 93% of products present in only one country
+gr_products_in_multiple_countries + 
+  labs(title = paste("Number of countries where products are present"),
+       y = "Number of products", x = "Number of countries") + 
+  coord_trans(y = "sqrt") +
+  scale_x_continuous(breaks = c(2, 5, 10)) +
+  theme_off + OFF.caption
+
+```
+
+
+
+
+
+
+\pagebreak
+
+# Nutriscore
+
+[comment]: Open Food facts code to Nutriscore computing:
+[comment]: https://github.com/openfoodfacts/openfoodfacts-server/blob/master/lib/ProductOpener/Food.pm
+[comment]: do not compute a score for dehydrated products to be rehydrated (e.g. dried soups, powder milk)
+[comment]: unless we have nutrition data for the prepared product
+[comment]: same for en:chocolate-powders, en:dessert-mixes and en:flavoured-syrups
+[comment]: en:dried-products-to-be-rehydrated", "en:chocolate-powders", "en:dessert-mixes", "en:flavoured-syrups", "en:instant-beverages"
+[comment]: https://github.com/openfoodfacts/openfoodfacts-server/blob/master/lib/ProductOpener/Config_off.pm
+[comment]: See "categories_exempted_from_nutriscore"
+
+```{r}
+# New table: countries_en | total | missing | completed  | ratio_ns
+library(stringr)
+
+# https://github.com/openfoodfacts/openfoodfacts-server/blob/master/lib/ProductOpener/Config_off.pm
+# [comment]: See "categories_exempted_from_nutriscore" =>  
+categories_exempted_from_nutriscore <- c("en:baby-foods", "en:baby-milks", 
+  "en:meal-replacements", "en:alcoholic-beverages", "en:coffees", "en:teas", 
+  "en:herbal-teas", "fr:levure", "fr:levures", "en:honeys", "en:vinegars", 
+  "en:pet-food", "en:non-food-products")
+
+nutriscore_data <- OFF_raw_sep_sorted_cum %>%
+  group_by(countries_en) %>%
+  filter(!grpl(paste(categories_exempted_from_nutriscore, collapse = "|"), categories_tags))
+
+nutriscore_pr_world <- nutriscore_data %>%
+  summarise(world_total = n(),
+            world_completed_ns = sum(!is.na(`nutrition-score-fr_100g`)),
+            world_ratio_ns = (world_completed_ns/world_total))
+
+products_nb_limit <- 3000 # Top countries
+nutriscore_pr_in_top_countries <- nutriscore_data %>%
+  filter(n() >= products_nb_limit) %>% 
+  summarise(total = n(),
+            missing_ns = sum(is.na(`nutrition-score-fr_100g`)),
+            missing_ct_tags = sum(is.na(`categories_tags`)),
+            completed_ns = sum(!is.na(`nutrition-score-fr_100g`)),
+            ratio_ns = (completed_ns/total))
+
+# Number of nutriscored products in France
+ns_pr_france <- subset(nutriscore_pr_world, countries_en =="France")
+
+# Total number of nutriscored products
+ns_pr_total_world <- nutriscore_pr_world %>% summarise(ns_pr_total = sum(world_completed_ns),
+                                                       pr_total = sum(world_total))
+
+# total number of products
+tot_nb_of_products <- nrow(OFF_raw)
+
+# potential number of Nutri-Scored products
+OFF_raw_ns <- OFF_raw %>% filter(!grepl(paste(categories_exempted_from_nutriscore, collapse = "|"), categories_tags))
+pot_nb_of_ns_products <- nrow(OFF_raw_ns) # potential number of nutriscored products
+
+# total number of Nutri-Scored products
+tot_nb_of_ns_products <- nrow(na.omit(OFF_raw_ns))
+
+# percent of total nutriscored products
+# round(tot_nb_of_ns_products/pot_nb_of_ns_products*100, digits = 1)
+
+# number of product that can't be nutriscored
+tot_nb_of_exempted_ns_products <- tot_nb_of_products - pot_nb_of_ns_products
+# percentage
+ns_exempted_products_per_cent <- round(tot_nb_of_exempted_ns_products/tot_nb_of_products*100, digits = 1)
+
+```
+Open Food Facts compute Nutri-Score for each product in whatever country. In the statistics and the graphs below, if a product is sold in two countries, it is counted in both countries. But world total number of Nutri-Scored products will count only one product.
+
+Open Food Facts database contains **`r format(tot_nb_of_products, big.mark = ",")`** products: 
+
+- **`r format(pot_nb_of_ns_products, big.mark = ",")`** represent all products that could be Nutri-Scored
+- **`r format(tot_nb_of_ns_products, big.mark = ",")`** of which are Nutri-Scored (`r round(tot_nb_of_ns_products/pot_nb_of_ns_products*100, digits=1)`%);
+- France hold **`r format(as.numeric(ns_pr_france$world_completed_ns), big.mark = ",")`** products with a Nutri-Score (which some of them are also sold in some other countries).
+
+**`r format(tot_nb_of_exempted_ns_products, big.mark = ",")`** products are exempted from Nutri-Score (`r round(ns_exempted_products_per_cent, digits=1)`% of total products).
+
+\pagebreak
+
+# Nutri-Score in countries with more than `r products_nb_limit` products (abs)
+
+```{r, size = 'tiny'}
+# 1. Using ggplot2: Your data is in the wide format You need to put it in the long format. Generally speaking, long format is better for variables comparison".
+# https://stackoverflow.com/a/21236376/4098096
+
+ns_pr_top_countries.wo.France <- nutriscore_pr_in_top_countries %>% 
+  filter(countries_en != "France")
+
+gr_nutriscore_p_country <- ggplot (data = ns_pr_top_countries.wo.France, aes (reorder(countries_en,completed_ns), completed_ns)) + 
+  geom_col() + coord_flip()
+
+gr_nutriscore_p_country + 
+  labs(title = paste("Nutriscore per country with more than", products_nb_limit, "products"),
+       subtitle = paste("(Except France which hold ",
+                        format(as.numeric(ns_pr_france$world_completed_ns), big.mark = ","),
+                        "products with a Nutri-Score)"),
+                        y = "Nutri-Scored products", x = "countries") + 
+  scale_y_continuous(labels = comma) +
+  geom_text(aes(label = completed_ns), hjust=1, vjust=0.6, color="white", size=3) +
+  theme_off + OFF.caption
+
+```
+
+
+\pagebreak
+
+# Nutriscore in countries with more than `r products_nb_limit` products (%)
+```{r}
+gr_ns_pr_in_top_countries <- ggplot (data = nutriscore_pr_in_top_countries, aes (reorder(countries_en,ratio_ns), ratio_ns)) + 
+  geom_col() + coord_flip()
+
+gr_ns_pr_in_top_countries + 
+  labs(title = paste("Nutriscore in countries with more than", products_nb_limit, "products (%)"),
+       y = "Nutri-Score", x = "countries") + 
+  geom_text(aes(label = round(ratio_ns*100, 0)),
+            hjust=1.4, vjust=0.6, color="white", size=3) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1),
+                     breaks = seq(0, 1.1, 0.1)) + 
+  theme_off + OFF.caption
+
+```
+
+\pagebreak
+
+# Missing category: the main issue for Nutri-Score
+[comment]: # 1. With somthing else than ggplot2 : https://www.r-graph-gallery.com/202-barplot-for-likert-type-items/
+
+[comment]: # 2. Lattice, # https://www.statmethods.net/advgraphs/trellis.html
+
+[comment]: # 1. Using ggplot2: Your data is in the wide format You need to put it in the long format. Generally speaking, long format is better for variables comparison".
+[comment]: # https://stackoverflow.com/a/21236376/4098096
+
+
+```{r, size = 'tiny'}
+nutriscore_p_country2 <- OFF_raw_sep_sorted_cum %>%
+  group_by(countries_en) %>% filter(n() >= products_nb_limit) %>% 
+  filter(!grepl("(en:baby-foods|en:baby-milks|en:alcoholic-beverages)",categories_tags)) %>%
+  filter(!grepl("(en:waters|en:coffees|en:teas|en:herbal-teas)",categories_tags)) %>%
+  filter(!grepl("(fr:levure|en:honeys|en:vinegars)",categories_tags)) %>%
+  summarise(missing_ct_tags = sum(is.na(`categories_tags`)/n()),
+            completed_ns = sum(!is.na(`nutrition-score-fr_100g`))/n()) %>%
+            arrange(completed_ns) %>%
+            mutate(countries_en = factor (countries_en, countries_en))
+nutriscore_p_country.m <- reshape2::melt(nutriscore_p_country2,id.vars = "countries_en")
+
+gr_nutriscore_p_country.m <- ggplot (data = nutriscore_p_country.m, aes (x = countries_en, y = value, fill = variable, order = -as.numeric(variable))) + 
+  geom_bar(stat = "identity") + coord_flip()
+
+gr_nutriscore_p_country.m + 
+  labs(title = paste("Nutriscore per country with more than", products_nb_limit, "products"),
+                     y = "Products with Nutri-Score and without categories",
+                     x = "countries") +
+  scale_fill_discrete(labels = c("Missing category","Nutriscore")) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1),
+                     breaks = seq(0, 1.1, 0.1)) +
+  theme_off + OFF.caption
+
+```
+
+Only two countries have more than 50% of products with the Nutri-Score. 
+
+We can see that the lack of category is an essential reason why many products don't have a Nutri-Score. Just adding a category can rise the potential number of Nutri-Scored products up to 90% in many counties.
+
+[comment]: # (Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.)
+
+[comment]: # (When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).)
+
+[comment]: # (The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.)
+
