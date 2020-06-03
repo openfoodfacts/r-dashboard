@@ -4,7 +4,6 @@ library(shiny)
 library(shinydashboard)
 library(dashboardthemes) 
 library(plotly)
-library(ggplot2)
 
 # load data ---------------------------------------------------------------
 

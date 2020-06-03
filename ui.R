@@ -1,4 +1,4 @@
-dashboardPage(
+shinydashboard::dashboardPage(
     dashboardHeader(title = "DASHOFF"),
     dashboardSidebar(
         sidebarMenu(
@@ -21,3 +21,5 @@ dashboardPage(
         
     )
 )
+
+
