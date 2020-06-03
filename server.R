@@ -1,9 +1,7 @@
 # libraries ---------------------------------------------------------------
 library(tidyverse)
 library(shiny)
-library(shinydashboard)
 library(dashboardthemes) 
-library(plotly)
 
 # load data ---------------------------------------------------------------
 
