@@ -1,3 +1,19 @@
+# project structure
+
+* data
+  * raw_data 
+    * bson 
+      * products.bson (download the .bson file at this address : https://static.openfoodfacts.org/data/openfoodfacts-mongodbdump.tar.gz)
+  * raw_data_mutate (sample in Rdata, made from _raw_data_transformation.R_)
+  * raw_data_transformation.R (script to transform .bson data)
+  * raw_data_transformation_personnalnote.R (another script, not used)
+* example (other work)
+* rsconnect (needed for web deployment)
+* server.R 
+* ui.R
+* ui_1.R
+* ui_2.R
+
 # aim 
 
 Give insight for the bureau administration of Openfoodfacts.
