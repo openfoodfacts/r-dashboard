@@ -58,3 +58,8 @@ The raw data is a .bson drop (NOSQL). Use of an asynchrone method : generation o
 - [x] implementation shinydasboard theme
 - [ ] right organisation for a better understanding 
 - [ ] geographical reading (leaflet)
+
+## Third party applications
+If you use this SDK, feel free to open a PR to add your application in this list.
+
+## Authors
